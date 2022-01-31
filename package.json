@@ -1,0 +1,21 @@
+{
+  "name": "e621-pool-downloader",
+  "version": "0.0.1",
+  "description": "e621 pool downloader",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "621.net",
+    "downloader",
+    "webp"
+  ],
+  "author": "Angel García <git@angelgarcia.dev>",
+  "license": "GPL",
+  "dependencies": {
+    "dotenv": "^14.2.0",
+    "node-fetch": "^3.2.0",
+    "puppeteer": "^13.1.1"
+  }
+}
