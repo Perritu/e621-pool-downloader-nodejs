@@ -152,16 +152,20 @@ async function login () {
 
   // Navega al formulario de inicio de sesión.
   await goto(page, `${config.siteURL}/session/new`)
+  console.log(`goto OK`)
 
   // Comrueba si hay una notificación "+18"
   let warnBtn = await page.$('#guest-warning-accept')
   if (null !== warnBtn) await warnBtn.click()
+  console.log(`Warn OK`)
 
   // Inicia sesión.
   await page.type('input[name="name"]', config.user.usr)
   await page.type('input[name="password"]', config.user.pwd)
   await page.click('input[name="commit"]')
+  console.log(`Submit credentials OK`)
   await page.waitForNavigation({waitUntil: 'networkidle0'})
+  console.log(`Login response OK`)
 
   // Busca el mensaje de error.
   let error = await page.$('#notice span')
@@ -243,8 +247,9 @@ function osExec(cmd) {
   // Inicia el navegador.
   console.info('Iniciando navegador...')
   BROWSER = await pptr.launch({
-    headless: config.displayBrowser,
+    headless: !config.displayBrowser,
   })
+  console.log(config.displayBrowser)
 
   // Inicia sesión (si hay credenciales).
   if (config.user.usr && config.user.pwd) await login()
@@ -256,16 +261,22 @@ function osExec(cmd) {
   for (let poolID of poolList) {
     // Obtiene los metadatos de la galería.
     let buffer = await goto(await Tab.exclusive(), `${config.siteURL}/pools/${poolID}.json`)
-    let pool   = JSON.parse(buffer)
+    let buffContent = await buffer.toString()
+    let pool   = JSON.parse(buffContent)
+
+    console.log(pool.success)
+    if(false === pool.success)
+    continue
+
     pool.name  = pool.name.replace(/_/g, ' ')
     console.info(`(${pool.id}) ${pool.name}`)
 
     poolsDetails.push(pool)
 
     // Obtiene los metadatos de las imágenes.
-    let craftedUrl = `${config.siteURL}/posts.json?tags=pool:${poolID}&limit=100&page=`
+    let craftedUrl = `${config.siteURL}/posts.json?tags=pool:${poolID}&limit=30&page=`
     let page = 0
-    while (pool.post_count > 100 * page) {
+    while (pool.post_count > 30 * page) {
       page++
       let buffer = await goto(await Tab(), craftedUrl + page)
       let posts  = JSON.parse(buffer).posts
@@ -278,9 +289,9 @@ function osExec(cmd) {
       }
     }
   }
-  // Elimina los IDs duplicados y los ordena de mayor a menor.
+  // Elimina los IDs duplicados y los ordena.
   imgDownload = [...new Set(imgDownload)]
-  imgDownload.sort((a, b) => b.id - a.id)
+  imgDownload.sort((a, b) => a.id - b.id)
 
   // Se asegura que existe el directorio de descarga de temporales.
   let cacheFiles = `${config.download.cache}/files`
@@ -288,26 +299,36 @@ function osExec(cmd) {
   if (!fs.existsSync(`${cacheFiles}/raws`)) fs.mkdirSync(`${cacheFiles}/raws`)
 
   // Descarga las imágenes.
+  let page  = await Tab.exclusive()
+  let total = imgDownload.length
   for (let img of imgDownload) {
     let cacheFile = `${cacheFiles}/${img.id}.webp`
     let rawFile   = `${cacheFiles}/raws/${img.id}.${img.ext}`
+    let totalDis  = (total--).toString().padStart(8, ' ')
+    // total--
 
     // Si la imagen ya existe, no la descarga.
     if (fs.existsSync(cacheFile)) {
-      console.info(`(${img.id}) ya descargada.`)
+      console.info(`[${totalDis}](${img.id}) ya descargada.`)
       continue
     }
 
     // Descarga la imagen.
-    console.info(`(${img.id}) descargando...`)
+    console.info(`[${totalDis}](${img.id}) descargando...`)
 
     let cmd = `curl -Lso "${rawFile}" "${img.file}"`
     await osExec(cmd)
 
-    // Convierte la imagen a WebP.
-    console.info(`(${img.id}) convirtiendo a WebP...`)
-    cmd = `cwebp -q 75 -m 6 -mt -o ${cacheFile} ${rawFile}`
+    if('webm' == img.ext) { // Excepción para webm.
+      let cmd = `mv "${rawFile}" "${cacheFile}"`
+    } else { // Convierte la imagen a WebP.
+      cmd = `cwebp -q 75 -m 6 -mt -o ${cacheFile} ${rawFile}`
+      +`||gif2webp -q 75 -m 6 -mt -o ${cacheFile} ${rawFile}`
+    }
     await osExec(cmd)
+    try {
+      // goto(await Tab.exclusive(), cacheFile)
+    } catch (e) {}
   }
 
   for(let pool of poolsDetails) {
@@ -340,7 +361,11 @@ function osExec(cmd) {
       let destFile  = `${dir}/pics/${imgName}.webp`
 
       // Copia el archivo.
-      fs.copyFileSync(cacheFile, destFile)
+      try {
+        fs.copyFileSync(cacheFile, destFile)
+      } catch(e) {
+        // Nada
+      }
     }
 
     // Escribe el archivo meta.json.
