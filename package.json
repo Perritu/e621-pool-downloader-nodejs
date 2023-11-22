@@ -14,8 +14,8 @@
   "author": "Angel García <git@angelgarcia.dev>",
   "license": "GPL",
   "dependencies": {
-    "dotenv": "^14.2.0",
+    "dotenv": "^16.0.3",
     "node-fetch": "^3.2.0",
-    "puppeteer": "^13.1.1"
+    "puppeteer": "^19.4.0"
   }
 }

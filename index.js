@@ -19,7 +19,8 @@ const args = process.argv.slice(2) // Argumentos de la línea de comandos.
 // Configuración.
 var config = {
   siteURL: env.E621_URL || 'https://e621.net',
-  displayBrowser: env.DISPLAY_BROWSER == 'true',
+  // displayBrowser: env.DISPLAY_BROWSER == 'true',
+  displayBrowser: true,
   user: {
     usr: env.E621_USER || '',
     pwd: env.E621_PASS || '',
@@ -54,7 +55,7 @@ const goto = async (page, url) => {
   // Alias local.
   let waiting = {
     waitUntil: 'networkidle0',
-    timeout  : 5000,
+    timeout  : 25000,
   }
 
   return new Promise(async solve => {
@@ -152,20 +153,16 @@ async function login () {
 
   // Navega al formulario de inicio de sesión.
   await goto(page, `${config.siteURL}/session/new`)
-  console.log(`goto OK`)
 
   // Comrueba si hay una notificación "+18"
   let warnBtn = await page.$('#guest-warning-accept')
   if (null !== warnBtn) await warnBtn.click()
-  console.log(`Warn OK`)
 
   // Inicia sesión.
   await page.type('input[name="name"]', config.user.usr)
   await page.type('input[name="password"]', config.user.pwd)
   await page.click('input[name="commit"]')
-  console.log(`Submit credentials OK`)
   await page.waitForNavigation({waitUntil: 'networkidle0'})
-  console.log(`Login response OK`)
 
   // Busca el mensaje de error.
   let error = await page.$('#notice span')
@@ -249,7 +246,6 @@ function osExec(cmd) {
   BROWSER = await pptr.launch({
     headless: !config.displayBrowser,
   })
-  console.log(config.displayBrowser)
 
   // Inicia sesión (si hay credenciales).
   if (config.user.usr && config.user.pwd) await login()
@@ -258,25 +254,32 @@ function osExec(cmd) {
   console.info(`Obteniendo metadatos de ${poolList.length} galerías...`)
   let imgDownload = []
   let poolsDetails = []
-  for (let poolID of poolList) {
+  for(let y = 0; y < poolList.length; y++) {
+  // for (let poolID of poolList) {
+    let poolID = poolList[y]
     // Obtiene los metadatos de la galería.
     let buffer = await goto(await Tab.exclusive(), `${config.siteURL}/pools/${poolID}.json`)
-    let buffContent = await buffer.toString()
-    let pool   = JSON.parse(buffContent)
+    let pool   = JSON.parse(buffer)
 
-    console.log(pool.success)
-    if(false === pool.success)
-    continue
-
-    pool.name  = pool.name.replace(/_/g, ' ')
-    console.info(`(${pool.id}) ${pool.name}`)
+    if(false == pool.success) continue
+    try {
+      pool.name  = pool.name.replace(/_/g, ' ')
+    } catch(E){
+      console.info(pool)
+      // await exit(0)
+      continue
+    }
+    console.info(
+      `[${y.toString().padStart(4, '_')}/${poolList.length.toString().padStart(4, '_')}]`
+      +`(${pool.id}) ${pool.name}`
+    )
 
     poolsDetails.push(pool)
 
     // Obtiene los metadatos de las imágenes.
-    let craftedUrl = `${config.siteURL}/posts.json?tags=pool:${poolID}&limit=30&page=`
+    let craftedUrl = `${config.siteURL}/posts.json?tags=pool:${poolID}&limit=100&page=`
     let page = 0
-    while (pool.post_count > 30 * page) {
+    while (pool.post_count > 100 * page) {
       page++
       let buffer = await goto(await Tab(), craftedUrl + page)
       let posts  = JSON.parse(buffer).posts
@@ -289,9 +292,9 @@ function osExec(cmd) {
       }
     }
   }
-  // Elimina los IDs duplicados y los ordena.
+  // Elimina los IDs duplicados y los ordena de mayor a menor.
   imgDownload = [...new Set(imgDownload)]
-  imgDownload.sort((a, b) => a.id - b.id)
+  imgDownload.sort((a, b) => b.id - a.id)
 
   // Se asegura que existe el directorio de descarga de temporales.
   let cacheFiles = `${config.download.cache}/files`
@@ -299,36 +302,35 @@ function osExec(cmd) {
   if (!fs.existsSync(`${cacheFiles}/raws`)) fs.mkdirSync(`${cacheFiles}/raws`)
 
   // Descarga las imágenes.
-  let page  = await Tab.exclusive()
-  let total = imgDownload.length
+  let counter = imgDownload.length
   for (let img of imgDownload) {
     let cacheFile = `${cacheFiles}/${img.id}.webp`
     let rawFile   = `${cacheFiles}/raws/${img.id}.${img.ext}`
-    let totalDis  = (total--).toString().padStart(8, ' ')
-    // total--
+    counter--
 
     // Si la imagen ya existe, no la descarga.
     if (fs.existsSync(cacheFile)) {
-      console.info(`[${totalDis}](${img.id}) ya descargada.`)
+      console.info(`(${img.id}) ya descargada.`)
       continue
     }
 
     // Descarga la imagen.
-    console.info(`[${totalDis}](${img.id}) descargando...`)
+    console.info(
+      `[${counter.toString().padStart(7, '_')}]`+
+      `(${img.id}) descargando...`
+    )
 
     let cmd = `curl -Lso "${rawFile}" "${img.file}"`
     await osExec(cmd)
 
-    if('webm' == img.ext) { // Excepción para webm.
-      let cmd = `mv "${rawFile}" "${cacheFile}"`
-    } else { // Convierte la imagen a WebP.
-      cmd = `cwebp -q 75 -m 6 -mt -o ${cacheFile} ${rawFile}`
-      +`||gif2webp -q 75 -m 6 -mt -o ${cacheFile} ${rawFile}`
-    }
+    // Convierte la imagen a WebP.
+    console.info(`(${img.id}) convirtiendo a WebP...`)
+    cmd = `cwebp -q 75 -m 6 -mt -o ${cacheFile} ${rawFile}`
+    +`||gif2webp -q 75 -m 6 -mt -o ${cacheFile} ${rawFile}`
+
+    // Excepción para webm
+    if('webm' == img.ext) cmd = `mv ${rawFile} ${cacheFile}`
     await osExec(cmd)
-    try {
-      // goto(await Tab.exclusive(), cacheFile)
-    } catch (e) {}
   }
 
   for(let pool of poolsDetails) {
@@ -356,16 +358,13 @@ function osExec(cmd) {
       // Padder para el número de la imagen.
       let imgName = count.toString().padStart(8, '0')
 
-      // Rutas a los archivos.
-      let cacheFile = `${cacheFiles}/${id}.webp`
-      let destFile  = `${dir}/pics/${imgName}.webp`
-
       // Copia el archivo.
       try {
-        fs.copyFileSync(cacheFile, destFile)
-      } catch(e) {
-        // Nada
-      }
+        fs.copyFileSync(
+          `${cacheFiles}/${id}.webp`,
+          `${dir}/pics/${imgName}.webp`
+        )
+      } catch(E) {}
     }
 
     // Escribe el archivo meta.json.
@@ -381,7 +380,7 @@ function osExec(cmd) {
   // Elimina los archivos temporales.
   console.info('Eliminando archivos temporales...')
   let cmd = `rm -rf ${cacheFiles}/raws`
-  await osExec(cmd)
+  // await osExec(cmd)
   await exit(0)
 })().catch(e => {
   console.error(`Error: ${e}`, e.stack)
