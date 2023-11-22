@@ -248,7 +248,14 @@ function osExec(cmd) {
   })
 
   // Inicia sesión (si hay credenciales).
-  if (config.user.usr && config.user.pwd) await login()
+  if (config.user.usr && config.user.pwd) {
+    try{
+      await login()
+    } finally {
+      let buffer = await goto(await Tab(), `${config.siteURL}/pools/`)
+      if (!buffer.toString().indexOf('"/users/home"') === -1) throw new Error('Login failed by fail')
+    }
+  }
 
   // Obtiene los metadatos de las galerías.
   console.info(`Obteniendo metadatos de ${poolList.length} galerías...`)
